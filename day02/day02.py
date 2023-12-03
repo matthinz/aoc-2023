@@ -35,8 +35,30 @@ def game_is_possible(game, maxes):
     return all(round_is_possible(round, maxes) for round in game["rounds"])
 
 
+def min_cubes_required(game):
+    maxes = {}
+    for round in game["rounds"]:
+        for color in round:
+            if color in maxes and round[color] > maxes[color]:
+                maxes[color] = round[color]
+            elif color not in maxes:
+                maxes[color] = round[color]
+
+    return maxes
+
+
+def power(game):
+    cubes = min_cubes_required(game)
+    result = None
+    for color in cubes:
+        if result is None:
+            result = cubes[color]
+        else:
+            result *= cubes[color]
+    result
+
+
 def part1(lines):
-    lines = (line.strip() for line in lines)
     games = (parse_game(line) for line in lines if line)
     maxes = {"red": 12, "green": 13, "blue": 14}
 
@@ -46,7 +68,10 @@ def part1(lines):
 
 
 def part2(lines):
-    None
+    games = [parse_game(line) for line in lines if line]
+    powers = [power(game) for game in games]
+    print(repr(powers))
+    return sum(powers)
 
 
 if __name__ == "__main__":
