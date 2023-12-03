@@ -55,7 +55,7 @@ def power(game):
             result = cubes[color]
         else:
             result *= cubes[color]
-    result
+    return result
 
 
 def part1(lines):
@@ -70,7 +70,6 @@ def part1(lines):
 def part2(lines):
     games = [parse_game(line) for line in lines if line]
     powers = [power(game) for game in games]
-    print(repr(powers))
     return sum(powers)
 
 
