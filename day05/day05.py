@@ -4,68 +4,159 @@ import sys
 from typing import Optional
 
 
-class Range:
-    def __init__(self, start: int, length: int):
-        self.start = start
-        self.length = length
+class MapEntry:
+    def __init__(self, source: range, dest_offset: int) -> None:
+        self._source: range = source
+        self._dest_offset = dest_offset
+
+    def map_source_to_dest(self, r: range) -> (range, range, range):
+        """
+        Maps source values to destination values.
+        Returns a tuple of (unmapped_before, dest, unmapped_after):
+        - unmapped_before: The set of values before the destination ones that weren't mapped
+        - dest: The corresponding destination ranges
+        - unmapped_after: The set of values after the destination range that weren't mapped
+        """
+        source = self.source()
+        offset = self._dest_offset
+        empty_range = range(0, 0)
+
+        r_inside_source = r.start >= source.start and r.stop <= source.stop
+        r_contains_source = r.start <= source.start and r.stop >= source.stop
+        r_overlaps_left = (
+            r.start < source.start and r.stop > source.start and r.stop <= source.stop
+        )
+        r_overlap_right = (
+            r.start >= source.start and r.start < source.stop and r.stop >= source.stop
+        )
+        r_before = r.stop <= source.start
+        r_after = r.start >= source.stop
+
+        if r_inside_source:
+            return (empty_range, range(r.start + offset, r.stop + offset), empty_range)
+        elif r_contains_source:
+            return (
+                range(r.start, source.start),
+                range(source.start + offset, source.stop + offset),
+                range(source.stop, r.stop),
+            )
+        elif r_overlaps_left:
+            return (
+                range(r.start, source.start),
+                range(source.start + offset, r.stop + offset),
+                empty_range,
+            )
+        elif r_overlap_right:
+            return (
+                empty_range,
+                range(r.start + offset, source.stop + offset),
+                range(source.stop, r.stop),
+            )
+        elif r_before:
+            return (r, empty_range, empty_range)
+        elif r_after:
+            return (empty_range, empty_range, r)
+        else:
+            assert False, "unhandled case"
+
+    def source(self) -> range:
+        return self._source
+
+    def dest(self) -> range:
+        return range(
+            self._source.start + self._dest_offset,
+            self._source.stop + self._dest_offset,
+        )
 
 
 class Map:
+    """
+    Map handles mapping source values to destination values
+    """
+
     def __init__(self, source: str, destination: str):
         self.source = source
         self.destination = destination
-        self.source_ranges: list[Range] = []
-        self.destination_ranges: list[Range] = []
+        self.entries: list[MapEntry] = []
 
-    def add_range(self, dest_start: int, source_start: int, length: int):
-        self.source_ranges.append(Range(source_start, length))
-        self.destination_ranges.append(Range(dest_start, length))
+    def add(self, source_start: int, dest_start: int, length: int):
+        self.entries.append(
+            MapEntry(
+                range(source_start, source_start + length),
+                dest_start - source_start,
+            )
+        )
 
-    def dest_for(self, source: int) -> int:
-        for source_range, destination_range in zip(
-            self.source_ranges, self.destination_ranges
-        ):
-            if (
-                source >= source_range.start
-                and source < source_range.start + source_range.length
-            ):
-                return destination_range.start + (source - source_range.start)
+    def trace(self, ranges: list[range]) -> list[range]:
+        """
+        trace interprets ranges as a set of source values and returns the
+        corresponding set of destination values
+        """
 
-        return source
+        result: list[range] = []
+        working_ranges = ranges.copy()
+
+        while len(working_ranges) > 0:
+            r = working_ranges.pop()
+
+            if not r:
+                continue
+
+            unmapped_before: Optional[range] = None
+            mapped: Optional[range] = None
+            unmapped_after: Optional[range] = None
+
+            for e in self.entries:
+                t = e.map_source_to_dest(r)
+                any_source_mapped = bool(t[1])
+
+                if any_source_mapped:
+                    unmapped_before, mapped, unmapped_after = t
+                    break
+
+            if mapped:
+                result.append(mapped)
+                working_ranges.append(unmapped_before)
+                working_ranges.append(unmapped_after)
+            else:
+                result.append(r)
+
+        return result
 
 
 class Almanac:
-    def __init__(self, seeds: list[Range], maps: list[Map]):
-        self.seeds: list[Range] = seeds
+    def __init__(self, seeds: list[range], maps: list[Map]):
+        self.seeds: list[range] = seeds
         self.maps = maps
-        pass
 
-    def min_location_for_seed(self, seed: Range) -> int:
-        best: Optional[int] = None
+    def map_from(self, thing: str) -> Optional[Map]:
+        for map in self.maps:
+            if map.source == thing:
+                return map
 
-        for i in range(seed.start, seed.start + seed.length):
-            thing = "seed"
-            num = i
+    def map_to(self, thing: str) -> Optional[Map]:
+        for map in self.maps:
+            if map.destination == thing:
+                return map
 
-            while True:
-                if thing == "location":
-                    if best is None or num < best:
-                        best = num
-                    break
+    def min_location_for_seed(self, seed: range) -> int:
+        map = self.map_from("seed")
 
-                map = self.map_from(thing)
-                if not map:
-                    raise Exception(f"No map found for source {thing}")
+        if not map:
+            raise Exception("No seed map")
 
-                num = map.dest_for(num)
-                thing = map.destination
+        locations = self.trace([seed], map)
+        first_location = sorted(locations, key=lambda r: r.start)[0]
+        return first_location.start
 
-        return best
+    def trace(self, ranges: list[range], map: Map) -> list[range]:
+        next_ranges = map.trace(ranges)
 
-    def map_from(self, thing) -> Optional[Map]:
-        for m in self.maps:
-            if m.source == thing:
-                return m
+        next_map = self.map_from(map.destination)
+        if next_map:
+            return self.trace(next_ranges, next_map)
+
+        return next_ranges
 
     @staticmethod
     def parse(lines: list[str], seeds_as_ranges=True) -> "Almanac":
@@ -74,7 +165,7 @@ class Almanac:
 
         State = Enum("State", ["NEED_SEEDS", "READY_FOR_MAP", "IN_MAP"])
 
-        seeds: list[Range] = []
+        seeds: list[range] = []
         maps: list[Map] = []
         state: State = State.NEED_SEEDS
 
@@ -104,7 +195,7 @@ class Almanac:
                 if seed_start is None:
                     seed_start = value
                 else:
-                    seeds.append(Range(seed_start, value))
+                    seeds.append(range(seed_start, seed_start + value))
                     seed_start = None
 
             return State.READY_FOR_MAP
@@ -134,7 +225,7 @@ class Almanac:
                 return start_map()
 
             dest_start, source_start, length = (int(value) for value in line.split(" "))
-            maps[-1].add_range(dest_start, source_start, length)
+            maps[-1].add(source_start, dest_start, length)
 
         for line in lines:
             match state:
