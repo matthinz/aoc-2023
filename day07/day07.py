@@ -3,7 +3,7 @@ from functools import cached_property
 from math import floor
 import re
 import sys
-from typing import Optional
+from typing import Generator, Optional
 
 CARD_VALUES = {
     "2": 2,
@@ -36,65 +36,107 @@ class HandType(Enum):
 
 
 class Hand:
-    def __init__(self, cards: str, bid: int) -> None:
+    def __init__(self, cards: str, bid: int, jokers_wild) -> None:
         assert len(cards) == 5
         assert bid > 0
 
         self._cards = cards
         self._bid = bid
+        self._jokers_wild = jokers_wild
 
     def bid(self) -> int:
         return self._bid
 
     @cached_property
-    def card_values(self) -> list[int]:
-        return [CARD_VALUES[card] for card in self._cards]
+    def card_values(self) -> Generator[int, None, None]:
+        for card in self._cards:
+            if self._jokers_wild and card == "J":
+                yield 0
+            else:
+                yield CARD_VALUES[card]
 
     @cached_property
     def hand_type(self) -> HandType:
-        index = {}
-        for c in self._cards:
-            if not c in index:
-                index[c] = 0
-            index[c] += 1
+        cards = self._cards
+        jokers = 0
 
-        by_count: map[int, list[str]] = {}
+        if self._jokers_wild:
+            jokers = self._cards.count("J")
+            cards = self._cards.replace("J", "")
+
+        counts = {}
         for i in range(0, len(self._cards) + 1):
-            by_count[i] = []
+            counts[i] = []
 
-        for card in index:
-            by_count[index[card]].append(card)
+        for card in set(cards):
+            count = cards.count(card)
+            counts[count].append(card)
 
-        if len(by_count[5]) == 1:
+        if len(counts[5]) == 1:
             return HandType.FIVE_OF_A_KIND
-        elif len(by_count[4]) == 1:
-            return HandType.FOUR_OF_A_KIND
-        elif len(by_count[3]) == 1 and len(by_count[2]) == 1:
-            return HandType.FULL_HOUSE
-        elif len(by_count[3]) == 1:
-            return HandType.THREE_OF_A_KIND
-        elif len(by_count[2]) == 2:
-            return HandType.TWO_PAIR
-        elif len(by_count[2]) == 1:
-            return HandType.ONE_PAIR
-        else:
-            return HandType.HIGH_CARD
+
+        if len(counts[4]) == 1:
+            if jokers == 1:
+                return HandType.FIVE_OF_A_KIND
+            else:
+                return HandType.FOUR_OF_A_KIND
+
+        if len(counts[3]) == 1:
+            if jokers == 2:
+                return HandType.FIVE_OF_A_KIND
+            elif jokers == 1:
+                return HandType.FOUR_OF_A_KIND
+            elif len(counts[2]) == 1:
+                return HandType.FULL_HOUSE
+            else:
+                return HandType.THREE_OF_A_KIND
+
+        if len(counts[2]) == 2:
+            if jokers == 1:
+                return HandType.FULL_HOUSE
+            else:
+                return HandType.TWO_PAIR
+
+        if len(counts[2]) == 1:
+            if jokers == 3:
+                return HandType.FIVE_OF_A_KIND
+            elif jokers == 2:
+                return HandType.FOUR_OF_A_KIND
+            elif jokers == 1:
+                return HandType.THREE_OF_A_KIND
+            else:
+                return HandType.ONE_PAIR
+
+        # We have no pairs
+        match jokers:
+            case 5:
+                return HandType.FIVE_OF_A_KIND
+            case 4:
+                return HandType.FIVE_OF_A_KIND
+            case 3:
+                return HandType.FOUR_OF_A_KIND
+            case 2:
+                return HandType.THREE_OF_A_KIND
+            case 1:
+                return HandType.ONE_PAIR
+
+        return HandType.HIGH_CARD
 
     @staticmethod
     def key(x: "Hand") -> list[int]:
         return [int(x.hand_type), *x.card_values]
 
 
-def parse_input(lines) -> list[Hand]:
+def parse_input(lines, jokers_wild) -> list[Hand]:
     result = []
     for line in lines:
         cards, bid = line.split(" ")
-        result.append(Hand(cards, int(bid)))
+        result.append(Hand(cards, int(bid), jokers_wild=jokers_wild))
     return result
 
 
 def part1(lines):
-    hands = parse_input(lines)
+    hands = parse_input(lines, jokers_wild=False)
     result = 0
     for rank, hand in enumerate(sorted(hands, key=Hand.key)):
         result += hand.bid() * (rank + 1)
@@ -103,7 +145,12 @@ def part1(lines):
 
 
 def part2(lines):
-    pass
+    hands = parse_input(lines, jokers_wild=True)
+    result = 0
+    for rank, hand in enumerate(sorted(hands, key=Hand.key)):
+        result += hand.bid() * (rank + 1)
+
+    return result
 
 
 if __name__ == "__main__":
