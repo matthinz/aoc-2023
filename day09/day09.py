@@ -26,6 +26,27 @@ def get_next_value(seq: list[int]) -> int:
     return seq[-1] + next_diff
 
 
+def get_prev_value(seq: list[int]) -> int:
+    diffs: list[int] = []
+    seq = list(seq)
+    diffs_all_zero = True
+
+    for i in reversed(range(1, len(seq))):
+        x = seq[i]
+        y = seq[i - 1]
+        diff = x - y
+        diffs_all_zero = diffs_all_zero and diff == 0
+        diffs.append(diff)
+
+    diffs.reverse()
+
+    if diffs_all_zero:
+        return seq[0]
+
+    next_diff = get_prev_value(diffs)
+    return seq[0] - next_diff
+
+
 def part1(lines: list[str]) -> Iterable[int]:
     next_values: list[int] = []
 
@@ -41,7 +62,17 @@ def part1(lines: list[str]) -> Iterable[int]:
 
 
 def part2(lines) -> Optional[int]:
-    return None
+    prev_values: list[int] = []
+
+    for line in lines:
+        line = re.sub(r"\s+", " ", line.strip())
+        if line == "":
+            continue
+
+        raw_values = line.split(" ")
+        prev_values.append(get_prev_value(int(value) for value in raw_values))
+
+    return sum(prev_values)
 
 
 if __name__ == "__main__":
