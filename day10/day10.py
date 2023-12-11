@@ -62,6 +62,14 @@ class Node:
 
             self.set_edge(edge, neighbor)
 
+    def disconnect_from_neighbors(self):
+        for edge in self.edges:
+            n = self.edges[edge]
+            if n is None:
+                continue
+            self.edges[edge] = None
+            n.edges[OPPOSITE_EDGES[edge]] = None
+
     def find_neighbor(
         self, grid: list[list["Node"]], edge: NodeEdge
     ) -> Optional["Node"]:
@@ -103,8 +111,6 @@ class Node:
             NodeEdge.WEST: self.find_neighbor(grid, NodeEdge.WEST),
         }
 
-        print(neighbors)
-
         edges: set[NodeEdge] = set()
 
         for edge in neighbors:
@@ -134,14 +140,28 @@ class Node:
 
 
 class NodeIterator:
-    def __init__(self, node: Node, entering_edge: NodeEdge):
-        self.node = node
-        self.entering_edge = entering_edge
+    def __init__(self, node: Node):
+        self.node = self.start_node = node
+        self.entering_edge: Optional[NodeEdge] = None
 
     def __iter__(self):
         return self
 
     def __next__(self):
+        if self.entering_edge is None:
+            self.entering_edge = [
+                edge
+                for edge in [
+                    NodeEdge.NORTH,
+                    NodeEdge.EAST,
+                    NodeEdge.SOUTH,
+                    NodeEdge.WEST,
+                ]
+                if self.node.is_edge_set(edge)
+            ][0]
+            assert self.entering_edge, "no starting edge found"
+            return self.node
+
         for leaving_edge in EDGES_BY_TILE[self.node.c]:
             if leaving_edge == self.entering_edge:
                 # this is the edge we entered on
@@ -149,7 +169,7 @@ class NodeIterator:
                 continue
 
             next_node = self.node.get_edge(leaving_edge)
-            if next_node is None:
+            if next_node is None or next_node == self.start_node:
                 raise StopIteration
 
             self.node = next_node
@@ -158,7 +178,7 @@ class NodeIterator:
             return next_node
 
 
-def parse_input(lines: list[str]) -> Node:
+def parse_input(lines: list[str]) -> (Node, list[list[Node]]):
     grid = []
     start_node = None
 
@@ -191,41 +211,194 @@ def parse_input(lines: list[str]) -> Node:
     # Finally, determine the start node's edges and determine its character
     start_node.guess_yourself(grid)
 
-    return start_node
+    return start_node, grid
 
 
 def find_max_distance_from_start(start_node: Node) -> int:
-    print(start_node.edges)
+    return len(set(NodeIterator(start_node))) // 2
 
-    start_edge = [
-        edge
-        for edge in [
-            NodeEdge.NORTH,
-            NodeEdge.EAST,
-            NodeEdge.SOUTH,
-            NodeEdge.WEST,
-        ]
-        if start_node.is_edge_set(edge)
-    ][0]
 
-    assert start_edge, "no starting edge found"
+def find_point_inside_loop(
+    start_node: Node, grid: list[list[Node]]
+) -> Optional[tuple[int, int]]:
+    loop = set(NodeIterator(start_node))
 
-    visited = {}
-    for node in NodeIterator(start_node, start_edge):
-        if node in visited:
-            break
-        visited[node] = True
+    def is_inside_loop(point: (int, int)) -> bool:
+        if node in loop:
+            return False
 
-    return len(visited) // 2
+        for dir in [NodeEdge.NORTH, NodeEdge.EAST, NodeEdge.SOUTH, NodeEdge.WEST]:
+            hits = 0
+
+            x, y = point
+
+            while x > 0 and y >= 0 and y < len(grid):
+                row = grid[y]
+                if x >= len(row):
+                    break
+                n = row[x]
+                if n in loop:
+                    hits += 1
+                x, y = move((x, y), dir)
+
+            if hits % 2 == 0:
+                return False
+
+        return True
+
+    # Find a point inside the grid where a ray traced out in each of the
+    # cardinal directions hits the loop an odd number of times
+    for y, row in enumerate(grid):
+        for x, node in enumerate(row):
+            if is_inside_loop((x, y)):
+                return (x, y)
+
+
+def move(point: (int, int), dir: NodeEdge) -> (int, int):
+    x, y = point
+    match dir:
+        case NodeEdge.NORTH:
+            return (x, y - 1)
+        case NodeEdge.EAST:
+            return (x + 1, y)
+        case NodeEdge.SOUTH:
+            return (x, y + 1)
+        case NodeEdge.WEST:
+            return (x - 1, y)
+        case _:
+            assert False
+
+
+def flood_fill(
+    start: tuple[int, int],
+    grid: list[list[Optional[Node]]],
+) -> set[tuple[int, int]]:
+    result: set[tuple[int, int]] = set()
+    visited: set[tuple[int, int]] = set()
+    to_visit: set[tuple[int, int]] = set([start])
+
+    while len(to_visit) > 0:
+        x, y = to_visit.pop()
+        visited.add((x, y))
+
+        node = grid[y][x]
+
+        if node is not None:
+            continue
+
+        # This position is empty!
+        result.add((x, y))
+
+        # Evaluate nodes around us and see if we need to try and flood them
+        for dir in [NodeEdge.NORTH, NodeEdge.EAST, NodeEdge.SOUTH, NodeEdge.WEST]:
+            new_x, new_y = move((x, y), dir)
+
+            if new_x < 0 or new_y < 0:
+                continue
+
+            if new_y >= len(grid):
+                continue
+
+            row = grid[new_y]
+            if new_x >= len(row):
+                continue
+
+            if (new_x, new_y) in visited:
+                continue
+
+            to_visit.add((new_x, new_y))
+
+    return result
 
 
 def part1(lines: list[str]) -> int:
-    start_node = parse_input(lines)
-    print((start_node.c, start_node.x, start_node.y))
+    start_node, _ = parse_input(lines)
     return find_max_distance_from_start(start_node)
 
 
 def part2(lines) -> int:
+    start_node, grid = parse_input(lines)
+
+    def print_grid(
+        grid: list[list[Node]], flooded_points: Optional[set[tuple[int, int]]] = None
+    ):
+        print("")
+        for y, row in enumerate(grid):
+            chars = []
+            for x, node in enumerate(row):
+                if flooded_points and (x, y) in flooded_points:
+                    chars.append("*")
+                elif node:
+                    chars.append(node.c)
+                else:
+                    chars.append(".")
+            print("".join(chars))
+        print("")
+
+    def clean_grid(grid: list[list[Node]]):
+        loop = set(NodeIterator(start_node))
+        for row in grid:
+            for x, node in enumerate(row):
+                if node is None:
+                    continue
+
+                if node in loop:
+                    continue
+
+                node.disconnect_from_neighbors()
+                row[x] = None
+
+    def expand_grid(grid: list[list[Node]]):
+        expanded_grid = []
+        for y, row in enumerate(grid):
+            # Expand the row in the x direction
+            expanded_row = []
+            expanded_grid.append(expanded_row)
+            for x, node in enumerate(row):
+                expanded_row.append(node)
+
+                if node is None or not node.is_edge_set(NodeEdge.EAST):
+                    expanded_row.append(None)
+                    continue
+
+                # We're going to insert a - to maintain the connection
+                east = node.get_edge(NodeEdge.EAST)
+                connector = Node("-", x + 1, y)
+                node.set_edge(NodeEdge.EAST, connector)
+                east.set_edge(NodeEdge.WEST, connector)
+                expanded_row.append(connector)
+
+            # Expand the grid in the y direction
+            new_row = []
+            expanded_grid.append(new_row)
+            for x, node in enumerate(expanded_row):
+                if node is None or not node.is_edge_set(NodeEdge.SOUTH):
+                    new_row.append(None)
+                    continue
+
+                south = node.get_edge(NodeEdge.SOUTH)
+                connector = Node("|", x, y + 1)
+                node.set_edge(NodeEdge.SOUTH, connector)
+                south.set_edge(NodeEdge.NORTH, connector)
+                new_row.append(connector)
+
+        return expanded_grid
+
+    clean_grid(grid)
+
+    grid = expand_grid(grid)
+
+    flood_start = find_point_inside_loop(start_node, grid)
+
+    assert flood_start, "could not find point inside loop"
+
+    flooded_points = flood_fill(flood_start, grid)
+
+    # Since we expanded the grid, the odd rows/cols don't count
+    return len(
+        [point for point in flooded_points if point[0] % 2 == 0 and point[1] % 2 == 0]
+    )
+
     pass
 
 
