@@ -52,78 +52,51 @@ class Galaxy:
         self.position = position
 
 
-def parse_input(lines: list[str]) -> set[Galaxy]:
-    grid: list[list[Optional[int]]] = []
-    last_galaxy_index = 0
-    galaxies: set[Galaxy] = set()
-
+def parse_input(lines: list[str], expansion_factor: int) -> dict[int, Point]:
     lines = (line.strip() for line in lines)
     lines = (line for line in lines if line != "")
 
-    for y, line in enumerate(lines):
-        row: list[Optional[Galaxy]] = []
-        grid.append(row)
-        any_galaxies_in_row = False
+    galaxies_by_row: dict[int, int] = {}
+    galaxies_by_col: dict[int, int] = {}
+    galaxy_positions: dict[int, Point] = {}
 
+    last_galaxy_index = 0
+
+    for y, line in enumerate(lines):
+        galaxies_by_row[y] = 0
         for x, c in enumerate(line):
+            if y == 0:
+                galaxies_by_col[x] = 0
+
             if c == "#":
                 last_galaxy_index += 1
-                galaxy = Galaxy(last_galaxy_index, Point(x, y))
-                galaxies.add(galaxy)
-                row.append(galaxy)
-                any_galaxies_in_row = True
-            else:
-                row.append(None)
+                galaxy_positions[last_galaxy_index] = Point(x, y)
+                galaxies_by_row[y] += 1
+                galaxies_by_col[x] += 1
 
-        if not any_galaxies_in_row:
-            grid.append([*row])
+    empty_rows = sorted([y for y in galaxies_by_row if galaxies_by_row[y] == 0])
+    empty_cols = sorted([x for x in galaxies_by_col if galaxies_by_col[x] == 0])
 
-    assert len(grid) > 0
-    assert len(grid[0]) > 0
+    for galaxy, position in galaxy_positions.items():
+        # For each empty column before this galaxy's x position,
+        # add <expansion_factor> to its x
+        new_position = position
 
-    x = 0
-    while x < len(grid[0]):
-        any_galaxies_in_col = False
-        for row in grid:
-            if row[x]:
-                any_galaxies_in_col = True
-                break
+        for empty_col in empty_cols:
+            if empty_col < position.x:
+                new_position = Point(
+                    new_position.x + expansion_factor - 1, new_position.y
+                )
 
-        if any_galaxies_in_col:
-            x += 1
-            continue
+        for empty_row in empty_rows:
+            if empty_row < position.y:
+                new_position = Point(
+                    new_position.x, new_position.y + expansion_factor - 1
+                )
 
-        for row in grid:
-            row.insert(x, None)
-        x += 2
+        galaxy_positions[galaxy] = new_position
 
-    for y, row in enumerate(grid):
-        for x, v in enumerate(row):
-            if isinstance(v, Galaxy):
-                v.position = Point(x, y)
-
-    return galaxies
-
-
-def format_grid(
-    grid: list[list[Optional[Galaxy]]], path: Optional[list[Point]] = None
-) -> str:
-    result = []
-    for y, row in enumerate(grid):
-        line = []
-        for x, v in enumerate(row):
-            if path and (x, y) in path:
-                line.append("*")
-            elif v:
-                line.append(str(v.number))
-            else:
-                line.append(".")
-        result.append("".join(line))
-    return "\n".join(result)
-
-
-def print_grid(grid: list[list[Optional[Galaxy]]], path: Optional[list[Point]] = None):
-    print(f"\n{format_grid(grid, path)}\n")
+    return galaxy_positions
 
 
 def steps_between(a: Point, b: Point) -> int:
@@ -131,20 +104,27 @@ def steps_between(a: Point, b: Point) -> int:
 
 
 def part1(lines: list[str]) -> int:
-    galaxies = parse_input(lines)
+    galaxy_positions = parse_input(lines, expansion_factor=2)
 
-    combos = list(combinations(galaxies, 2))
+    combos = list(combinations(galaxy_positions.keys(), 2))
 
     distances = (
-        steps_between(galaxy_a.position, galaxy_b.position)
-        for galaxy_a, galaxy_b in combos
+        steps_between(galaxy_positions[a], galaxy_positions[b]) for a, b in combos
     )
 
     return sum(distances)
 
 
-def part2(lines) -> int:
-    pass
+def part2(lines: list[str], expansion_factor: int = 1_000_000) -> int:
+    galaxy_positions = parse_input(lines, expansion_factor=expansion_factor)
+
+    combos = list(combinations(galaxy_positions.keys(), 2))
+
+    distances = (
+        steps_between(galaxy_positions[a], galaxy_positions[b]) for a, b in combos
+    )
+
+    return sum(distances)
 
 
 if __name__ == "__main__":

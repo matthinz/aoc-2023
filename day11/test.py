@@ -1,7 +1,6 @@
-import os
 import unittest
 
-from day11 import part1, part2, format_grid, parse_input
+from day11 import part1, part2
 
 
 class TestDay11(unittest.TestCase):
@@ -23,10 +22,20 @@ class TestDay11(unittest.TestCase):
 
     def test_part2(self):
         TEST_INPUT = """
+            ...#......
+            .......#..
+            #.........
+            ..........
+            ......#...
+            .#........
+            .........#
+            ..........
+            .......#..
+            #...#.....
         """
 
         lines = [line.strip() for line in TEST_INPUT.split("\n")]
-        self.assertEqual(part2(lines), None)
+        self.assertEqual(part2(lines, expansion_factor=100), 8410)
 
 
 if __name__ == "__main__":
