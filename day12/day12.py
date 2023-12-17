@@ -21,105 +21,134 @@ def parse_input(
         yield (conditions, sizes)
 
 
-def optimize_unknown_indices(conditions: str, sizes: list[int]) -> tuple[str, set[int]]:
+def count_solutions_in_branch(
+    conditions: str, sizes: list[int], cache: dict[str, int]
+) -> int:
+    conditions = conditions.strip(".")
+    i = conditions.find(".")
+    first_run = conditions[0:i] if i >= 0 else conditions
+
+    if len(sizes) == 0:
+        return 0
+
+    if len(conditions) == 0:
+        return 0
+
+    expected_size = sizes[0]
+
+    any_unknown = "?" in first_run
+    all_damaged = not any_unknown
+
+    # If the first run is all damaged, but does not match the expected size,
+    # then there are no solutions down this branch.
+    if all_damaged:
+        if len(first_run) == expected_size:
+            # This solution fits (so far), so we can continue down this branch,
+            # skipping the first run to limit the search space.
+            next_conditions = conditions[len(first_run) :].strip(".")
+            next_sizes = sizes[1:]
+
+            return count_solutions(next_conditions, next_sizes, cache)
+        else:
+            # There are no solutions down this branch
+
+            return 0
+    else:
+        return count_solutions(conditions, sizes, cache)
+
+
+def count_solutions(
+    conditions: str, sizes: list[int], cache: dict[str, int] = {}
+) -> int:
     unknown_indices = [i for i, _ in enumerate(conditions) if conditions[i] == "?"]
 
-    def set_index(conditions: str, i: int, value: str) -> str:
-        result = list(conditions)
-        result[i] = value
-        return "".join(result)
-
-    def break_into_runs(conditions: str) -> list[str]:
-        return [r for r in conditions.split(".") if r != ""]
-
-    def is_possible(index: int, state: str) -> bool:
-        working_conditions = set_index(conditions, index, state)
-        runs = break_into_runs(working_conditions)
-
-        # The cases here:
-        # 1. runs[0] is all unknown (e.g. '???')
-        # 2. runs[0] is all damaged (e.g. '###')
-        # 3. runs[0] is a mix (e.g. '?#?#')
-        #
-        any_unknown = "?" in runs[0]
-        any_damaged = "#" in runs[0]
-        all_damaged = not any_unknown
-        if all_damaged:
-            # We know that the corresponding size must match this run's
-            # length exactly
-            if sizes[0] != len(runs[0]):
-                return False
-        elif any_unknown and any_damaged:
-            # This is a mix of damaged and unknown.
-            # This run is possible only if the size required <= the length
-            # of the run
-            if sizes[0] > len(runs[0]):
-                return False
-
-        return True
-
-    i = 0
-    while i < len(unknown_indices):
-        unknown_index = unknown_indices[0]
-        damaged_is_possible = is_possible(unknown_index, "#")
-        undamaged_is_possible = is_possible(unknown_index, ".")
-
-        if damaged_is_possible and not undamaged_is_possible:
-            # This index must be damaged
-            conditions = set_index(conditions, unknown_index, "#")
-            unknown_indices[0:1] = []
-            continue
-        elif undamaged_is_possible and not damaged_is_possible:
-            conditions = set_index(conditions, unknown_index, ".")
-            unknown_indices[0:1] = []
-            continue
-
-        i += 1
-
-    return (conditions, set(unknown_indices))
-
-
-def find_possible_variants(conditions: str, sizes: list[int]) -> Iterator[str]:
-    """
-    Given a conditions string, returns an Iterator that runs through the
-    different ways "?" could be filled in
-    """
-
-    conditions, unknown_indices = optimize_unknown_indices(conditions, sizes)
-
     if len(unknown_indices) == 0:
-        yield conditions
-        return
+        # Check if this is an actual solution
+        runs = [r for r in conditions.split(".") if r != ""]
+        if len(runs) != len(sizes):
+            return 0
 
-    for damaged_count in range(0, len(unknown_indices) + 1):
-        for damaged_indices in combinations(unknown_indices, damaged_count):
-            damaged_indices = set(damaged_indices)
-            new_conditions = list(conditions)
+        for run, expected_size in zip(runs, sizes):
+            if len(run) != expected_size:
+                return 0
 
-            for i in unknown_indices:
-                new_conditions[i] = "#" if i in damaged_indices else "."
-            yield "".join(new_conditions)
+        return 1
 
+    match len(sizes):
+        case 0:
+            any_damaged = "#" in conditions
 
-def is_valid(conditions: str, sizes: list[int]) -> int:
-    runs = [r for r in conditions.split(".") if r != ""]
+            if any_damaged:
+                return 0
 
-    if len(runs) != len(sizes):
-        return False
+            return 1
 
-    for run, size in zip(runs, sizes):
-        if len(run) != size:
-            return False
+        case 1:
+            max_damaged = sizes[0]
+            actual_damaged = len([c for c in conditions if c == "#"])
 
-    return True
+            if actual_damaged > max_damaged:
+                return 0
 
+    for size in sizes:
+        if size > len(conditions):
+            return 0
 
-def count_solutions(input_conditions: str, sizes: list[int]) -> int:
-    result = 0
-    for conditions in find_possible_variants(input_conditions, sizes):
-        if is_valid(conditions, sizes):
-            result += 1
-    return result
+    leading_damaged = 0
+    for c in conditions:
+        if c == "#":
+            leading_damaged += 1
+        else:
+            break
+
+    if leading_damaged > sizes[0]:
+        return 0
+
+    damaged_or_unknown = conditions.replace(".", "")
+
+    # For a set of sizes of length n, the minimum length of the
+    # conditions string is n + n-1
+    if len(conditions) < (len(sizes) * 2) - 1:
+        return 0
+
+    if len(damaged_or_unknown) < len(sizes):
+        return 0
+
+    if len(damaged_or_unknown) < sum(sizes):
+        return 0
+
+    if conditions == "?" and len(sizes) == 1:
+        if sizes[0] == 1:
+            return 1
+        else:
+            return 0
+
+    # print(f"{conditions=} {sizes=}")
+
+    cache_key = f"{conditions} {", ".join(str(s) for s in sizes)}"
+
+    if cache_key in cache:
+        return cache[cache_key]
+
+    # Branch down two paths:
+    #   1. We set the first unknown index to damaged
+    #   2. We set the first unknown index to undamaged
+
+    first_index_damaged = list(conditions)
+    first_index_damaged[unknown_indices[0]] = "#"
+
+    first_index_undamaged = list(conditions)
+    first_index_undamaged[unknown_indices[0]] = "."
+
+    solutions = 0
+
+    solutions += count_solutions_in_branch("".join(first_index_damaged), sizes, cache)
+
+    solutions += count_solutions_in_branch("".join(first_index_undamaged), sizes, cache)
+
+    cache[cache_key] = solutions
+
+    return solutions
 
 
 def part1(lines: list[str]) -> Optional[int]:
@@ -132,7 +161,15 @@ def part1(lines: list[str]) -> Optional[int]:
 
 
 def part2(lines: list[str]) -> Optional[int]:
-    pass
+    result = 0
+
+    i = 1
+    for conditions, sizes in parse_input(lines, unfolding_factor=5):
+        # print(f"{i}. {conditions} {", ".join(str(s) for s in sizes)}")
+        i += 1
+        result += count_solutions(conditions, sizes)
+
+    return result
 
 
 if __name__ == "__main__":
