@@ -24,10 +24,20 @@ class TestDay16(unittest.TestCase):
         self.assertEqual(part1(lines), 46)
 
     def test_part2(self):
-        TEST_INPUT = """
+        TEST_INPUT = r"""
+            .|...\....
+            |.-.\.....
+            .....|-...
+            ........|.
+            ..........
+            .........\
+            ..../.\\..
+            .-.-/..|..
+            .|....-|.\
+            ..//.|....
         """
         lines = [line.strip() for line in TEST_INPUT.split("\n")]
-        self.assertEqual(part2(lines), None)
+        self.assertEqual(part2(lines), 51)
 
 
 if __name__ == "__main__":
